@@ -151,3 +151,8 @@ st.markdown(f"""
 
 👉 선택한 정책: **{scenario}**
 """)
+
+from PIL import Image
+
+logo = Image.open("seoul_logo.png")
+st.sidebar.image(logo, use_container_width=True)
