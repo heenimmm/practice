@@ -1,104 +1,153 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 st.set_page_config(page_title="수질-건강 영향 분석", layout="wide")
 
-st.title("💧 수질오염과 건강 영향 분석 대시보드")
+st.title("💧 수질오염 → 건강 영향 시뮬레이터")
+st.markdown("수질 지표 변화에 따른 질환 발생 위험을 정량적으로 시각화합니다.")
 
-st.markdown("""
-이 앱은 수질오염 지표(BOD, 중금속 등)와 건강 영향(소화기, 내분비 질환)의 관계를
-간단한 모델로 시뮬레이션합니다.
-""")
+# --------------------------
+# 기준값 (보고서 기반 평균값)
+# --------------------------
+BASELINE = {
+    "bod": 4.0,            # mg/L
+    "metal": 2.2,          # μg/L (Pb 기준 대표값)
+    "chl": 50.0,           # μg/L
+    "gastro": 66.5,        # 회/월
+    "endocrine": 35.6,     # 회/월
+    "skin": 110.5          # 회/월
+}
 
 # --------------------------
 # 사이드바
 # --------------------------
-st.sidebar.header("📊 설정")
+st.sidebar.header("📊 수질 지표 입력")
 
-region = st.sidebar.selectbox(
-    "유역 선택",
-    ["낙동강", "북한강"]
+bod = st.sidebar.slider("BOD (mg/L)", 0.0, 10.0, BASELINE["bod"])
+metal = st.sidebar.slider("중금속 (μg/L)", 0.0, 5.0, BASELINE["metal"])
+chl = st.sidebar.slider("클로로필-a (μg/L)", 0.0, 100.0, BASELINE["chl"])
+
+st.sidebar.markdown("---")
+
+scenario = st.sidebar.selectbox(
+    "🏛️ 정책 시나리오",
+    ["없음", "BOD 20% 감소", "중금속 30% 감소", "통합 개선"]
 )
 
-bod = st.sidebar.slider("BOD (mg/L)", 0.0, 10.0, 4.0)
-tn = st.sidebar.slider("총 질소 (T-N)", 0.0, 5.0, 3.0)
-tp = st.sidebar.slider("총 인 (T-P)", 0.0, 0.5, 0.1)
+# --------------------------
+# 예측 모델 (보고서 기반 비례식)
+# --------------------------
+def predict():
+    gastro = BASELINE["gastro"] * (bod / BASELINE["bod"])
+    endocrine = BASELINE["endocrine"] * (metal / BASELINE["metal"])
+    skin = BASELINE["skin"] * (chl / BASELINE["chl"])
+    return gastro, endocrine, skin
 
-heavy_metal = st.sidebar.slider("중금속 지수 (Pb/Cd/As 종합)", 0.0, 5.0, 2.0)
-chlorophyll = st.sidebar.slider("클로로필-a", 0.0, 100.0, 50.0)
+gastro, endocrine, skin = predict()
 
 # --------------------------
-# 간단 예측 모델 (가짜 but 구조용)
+# 정책 적용
 # --------------------------
-def predict_gastro(bod):
-    return bod * 15  # BOD → 소화기
+gastro_after, endocrine_after, skin_after = gastro, endocrine, skin
 
-def predict_endocrine(metal):
-    return metal * 10  # 중금속 → 내분비
-
-def predict_skin(chl):
-    return chl * 1.5  # 조류 → 피부
-
-gastro = predict_gastro(bod)
-endocrine = predict_endocrine(heavy_metal)
-skin = predict_skin(chlorophyll)
+if scenario == "BOD 20% 감소":
+    gastro_after *= 0.85
+elif scenario == "중금속 30% 감소":
+    endocrine_after *= 0.85
+elif scenario == "통합 개선":
+    gastro_after *= 0.85
+    endocrine_after *= 0.88
+    skin_after *= 0.9
 
 # --------------------------
-# 결과 출력
+# KPI 출력
 # --------------------------
-st.subheader("📈 예측 결과")
+st.subheader("📌 질환 발생 (월간 의료기관 방문 횟수)")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric("소화기 질환 위험", f"{gastro:.1f}")
-col2.metric("내분비 질환 위험", f"{endocrine:.1f}")
-col3.metric("피부 질환 위험", f"{skin:.1f}")
+col1.metric(
+    "소화기 질환 (회/월)",
+    f"{gastro_after:.1f}",
+    f"{gastro_after - gastro:.1f}"
+)
+
+col2.metric(
+    "내분비 질환 (회/월)",
+    f"{endocrine_after:.1f}",
+    f"{endocrine_after - endocrine:.1f}"
+)
+
+col3.metric(
+    "피부 질환 (회/월)",
+    f"{skin_after:.1f}",
+    f"{skin_after - skin:.1f}"
+)
 
 # --------------------------
-# 시각화
+# 비교 데이터프레임
 # --------------------------
-st.subheader("📊 질환 위험 비교")
-
 df = pd.DataFrame({
     "질환": ["소화기", "내분비", "피부"],
-    "위험도": [gastro, endocrine, skin]
+    "기존": [gastro, endocrine, skin],
+    "정책 적용 후": [gastro_after, endocrine_after, skin_after]
 })
+
+# --------------------------
+# 시각화 1: 비교 바차트
+# --------------------------
+st.subheader("📊 정책 적용 전 vs 후 비교")
 
 st.bar_chart(df.set_index("질환"))
 
 # --------------------------
-# 정책 시나리오
+# 시각화 2: 변화율 (%)
 # --------------------------
-st.subheader("🏛️ 정책 시나리오 효과")
+df["변화율(%)"] = (df["정책 적용 후"] - df["기존"]) / df["기존"] * 100
 
-scenario = st.selectbox(
-    "시나리오 선택",
-    ["기본", "BOD 20% 감소", "중금속 30% 감소", "통합 개선"]
-)
+st.subheader("📉 변화율 (%)")
 
-if scenario == "BOD 20% 감소":
-    gastro *= 0.85
-elif scenario == "중금속 30% 감소":
-    endocrine *= 0.85
-elif scenario == "통합 개선":
-    gastro *= 0.85
-    endocrine *= 0.88
-    skin *= 0.9
+st.dataframe(df.style.format({
+    "기존": "{:.1f}",
+    "정책 적용 후": "{:.1f}",
+    "변화율(%)": "{:.1f}%"
+}))
 
-st.write("### 적용 후 질환 위험")
+# --------------------------
+# 시각화 3: 게이지 느낌 (progress bar)
+# --------------------------
+st.subheader("📈 위험도 수준")
 
-col1, col2, col3 = st.columns(3)
-col1.metric("소화기", f"{gastro:.1f}")
-col2.metric("내분비", f"{endocrine:.1f}")
-col3.metric("피부", f"{skin:.1f}")
+def risk_bar(value, base):
+    ratio = min(value / (base * 2), 1.0)
+    st.progress(ratio)
+
+st.write("소화기 질환")
+risk_bar(gastro_after, BASELINE["gastro"])
+
+st.write("내분비 질환")
+risk_bar(endocrine_after, BASELINE["endocrine"])
+
+st.write("피부 질환")
+risk_bar(skin_after, BASELINE["skin"])
 
 # --------------------------
 # 인사이트
 # --------------------------
-st.subheader("💡 인사이트")
+st.subheader("💡 해석")
 
-st.markdown("""
-- BOD 증가 → 소화기 질환 급증
-- 중금속 → 내분비 질환과 강한 상관
-- 복합 정책 적용 시 전체 질환 감소 효과 발생
+st.markdown(f"""
+- 현재 BOD: **{bod} mg/L**
+- 중금속: **{metal} μg/L**
+- 클로로필-a: **{chl} μg/L**
+
+👉 수질 변화가 질환 발생에 **비례적으로 영향**을 주는 구조
+
+**핵심 해석**
+- BOD ↑ → 소화기 질환 증가
+- 중금속 ↑ → 내분비 질환 증가
+- 녹조 ↑ → 피부 질환 증가
+
+👉 선택한 정책: **{scenario}**
 """)
