@@ -154,5 +154,5 @@ st.markdown(f"""
 
 from PIL import Image
 
-logo = Image.open("seoul_logo.png")
+logo = Image.open("image.png")
 st.sidebar.image(logo, use_container_width=True)
